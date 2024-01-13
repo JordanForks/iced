@@ -21,6 +21,7 @@ qr_code = ["canvas", "qrcode"]
 unicode-segmentation = "1.6"
 num-traits = "0.2"
 thiserror = "1"
+keyframe = "1.1"
 
 [dependencies.iced_runtime]
 version = "0.1"

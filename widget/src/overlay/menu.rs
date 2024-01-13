@@ -41,7 +41,7 @@ where
 impl<'a, T, Message, Renderer> Menu<'a, T, Message, Renderer>
 where
     T: ToString + Clone,
-    Message: 'a,
+    Message: 'a + Clone,
     Renderer: text::Renderer + 'a,
     Renderer::Theme:
         StyleSheet + container::StyleSheet + scrollable::StyleSheet,
@@ -177,6 +177,7 @@ where
     Renderer: text::Renderer,
     Renderer::Theme:
         StyleSheet + container::StyleSheet + scrollable::StyleSheet,
+    Message: Clone,
 {
     pub fn new<T>(
         menu: Menu<'a, T, Message, Renderer>,

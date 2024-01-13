@@ -147,7 +147,7 @@ impl<'a, T: 'a, Message, Renderer> Widget<Message, Renderer>
 where
     T: Clone + ToString + Eq + 'static,
     [T]: ToOwned<Owned = Vec<T>>,
-    Message: 'a,
+    Message: 'a + Clone,
     Renderer: text::Renderer + 'a,
     Renderer::Theme: StyleSheet
         + scrollable::StyleSheet
@@ -281,7 +281,7 @@ impl<'a, T: 'a, Message, Renderer> From<PickList<'a, T, Message, Renderer>>
 where
     T: Clone + ToString + Eq + 'static,
     [T]: ToOwned<Owned = Vec<T>>,
-    Message: 'a,
+    Message: 'a + Clone,
     Renderer: text::Renderer + 'a,
     Renderer::Theme: StyleSheet
         + scrollable::StyleSheet
@@ -545,7 +545,7 @@ pub fn overlay<'a, T, Message, Renderer>(
 ) -> Option<overlay::Element<'a, Message, Renderer>>
 where
     T: Clone + ToString,
-    Message: 'a,
+    Message: 'a + Clone,
     Renderer: text::Renderer + 'a,
     Renderer::Theme: StyleSheet
         + scrollable::StyleSheet
