@@ -162,7 +162,11 @@
     clippy::useless_conversion
 )]
 #![forbid(rust_2018_idioms, unsafe_code)]
-#![allow(clippy::inherent_to_string, clippy::type_complexity)]
+#![allow(
+    clippy::inherent_to_string,
+    clippy::type_complexity,
+    hidden_glob_reexports
+)]
 #![cfg_attr(docsrs, feature(doc_auto_cfg))]
 use iced_widget::graphics;
 use iced_widget::renderer;
