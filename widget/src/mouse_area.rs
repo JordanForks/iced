@@ -1,14 +1,12 @@
 //! A container for capturing mouse events.
 
-use crate::core::event::{self, Event};
-use crate::core::layout;
-use crate::core::mouse;
-use crate::core::overlay;
-use crate::core::renderer;
-use crate::core::touch;
-use crate::core::widget::{tree, Operation, Tree};
+use std::time::{Duration, Instant};
+
 use crate::core::{
     Clipboard, Element, Layout, Length, Rectangle, Shell, Size, Widget,
+    event, layout, mouse, overlay, renderer, touch,
+    widget::{tree, Operation, Tree},
+    window::RedrawRequest, Event,
 };
 
 /// Emit messages on mouse events.
@@ -16,6 +14,8 @@ use crate::core::{
 pub struct MouseArea<'a, Message, Renderer> {
     content: Element<'a, Message, Renderer>,
     on_press: Option<Message>,
+    on_cancel: Option<Message>,
+    on_hold: Option<(Message, Duration)>,
     on_release: Option<Message>,
     on_right_press: Option<Message>,
     on_right_release: Option<Message>,
@@ -26,8 +26,22 @@ pub struct MouseArea<'a, Message, Renderer> {
 impl<'a, Message, Renderer> MouseArea<'a, Message, Renderer> {
     /// The message to emit on a left button press.
     #[must_use]
-    pub fn on_press(mut self, message: Message) -> Self {
-        self.on_press = Some(message);
+    pub fn on_press(mut self, message: impl Into<Option<Message>>) -> Self {
+        self.on_press = message.into();
+        self
+    }
+
+    /// The message to emit when holding down an item.
+    #[must_use]
+    pub fn on_hold(mut self, message: Message, duration: Duration) -> Self {
+        self.on_hold = Some((message, duration));
+        self
+    }
+
+    /// The message to emit when a user "cancels" a `press`.
+    #[must_use]
+    pub fn on_cancel(mut self, message: Message) -> Self {
+        self.on_cancel = Some(message);
         self
     }
 
@@ -71,6 +85,7 @@ impl<'a, Message, Renderer> MouseArea<'a, Message, Renderer> {
 #[derive(Default)]
 struct State {
     // TODO: Support on_mouse_enter and on_mouse_exit
+    held_since: Option<Instant>,
 }
 
 impl<'a, Message, Renderer> MouseArea<'a, Message, Renderer> {
@@ -79,6 +94,8 @@ impl<'a, Message, Renderer> MouseArea<'a, Message, Renderer> {
         MouseArea {
             content: content.into(),
             on_press: None,
+            on_hold: None,
+            on_cancel: None,
             on_release: None,
             on_right_press: None,
             on_right_release: None,
@@ -164,7 +181,9 @@ where
             return event::Status::Captured;
         }
 
-        update(self, &event, layout, cursor, shell)
+        let state = tree.state.downcast_mut::<State>();
+
+        update(self, state, &event, layout, cursor, shell)
     }
 
     fn mouse_interaction(
@@ -236,13 +255,29 @@ where
 /// accordingly.
 fn update<Message: Clone, Renderer>(
     widget: &mut MouseArea<'_, Message, Renderer>,
+    state: &mut State,
     event: &Event,
     layout: Layout<'_>,
     cursor: mouse::Cursor,
     shell: &mut Shell<'_, Message>,
 ) -> event::Status {
     if !cursor.is_over(layout.bounds()) {
+        if let (Some(message), Some(_)) = (&widget.on_cancel, state.held_since)
+        {
+            state.held_since = None;
+            shell.publish(message.clone());
+        }
+
         return event::Status::Ignored;
+    }
+
+    if let (Some((message, duration)), Some(held_since)) =
+        (widget.on_hold.as_ref(), state.held_since)
+    {
+        if held_since.elapsed() > *duration {
+            state.held_since = None;
+            shell.publish(message.clone());
+        }
     }
 
     if let Some(message) = widget.on_press.as_ref() {
@@ -250,6 +285,13 @@ fn update<Message: Clone, Renderer>(
         | Event::Touch(touch::Event::FingerPressed { .. }) = event
         {
             shell.publish(message.clone());
+
+            if let Some((_message, duration)) = widget.on_hold.clone() {
+                state.held_since = Some(Instant::now());
+                shell.request_redraw(RedrawRequest::At(
+                    Instant::now() + duration,
+                ));
+            }
 
             return event::Status::Captured;
         }
@@ -260,6 +302,7 @@ fn update<Message: Clone, Renderer>(
         | Event::Touch(touch::Event::FingerLifted { .. }) = event
         {
             shell.publish(message.clone());
+            state.held_since = None;
 
             return event::Status::Captured;
         }
