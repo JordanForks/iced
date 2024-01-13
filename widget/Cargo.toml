@@ -26,6 +26,7 @@ wgpu = ["iced_renderer/wgpu"]
 iced_renderer.workspace = true
 iced_runtime.workspace = true
 iced_style.workspace = true
+keyframe = "1.1"
 
 num-traits.workspace = true
 thiserror.workspace = true

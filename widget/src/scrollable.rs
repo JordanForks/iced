@@ -1,6 +1,5 @@
 //! Navigate an endless amount of content with a scrollbar.
 use crate::core::event::{self, Event};
-use crate::core::keyboard;
 use crate::core::layout;
 use crate::core::mouse;
 use crate::core::overlay;
@@ -9,12 +8,16 @@ use crate::core::touch;
 use crate::core::widget;
 use crate::core::widget::operation::{self, Operation};
 use crate::core::widget::tree::{self, Tree};
+use crate::core::{keyboard, window};
 use crate::core::{
     Background, Clipboard, Color, Element, Layout, Length, Pixels, Point,
     Rectangle, Shell, Size, Vector, Widget,
 };
 use crate::runtime::Command;
+use keyframe::{functions::EaseOutQuint, keyframes, AnimationSequence};
+use std::time::Instant;
 
+use crate::core::window::RedrawRequest;
 pub use crate::style::scrollable::{Scrollbar, Scroller, StyleSheet};
 pub use operation::scrollable::{AbsoluteOffset, RelativeOffset};
 
@@ -32,7 +35,9 @@ where
     direction: Direction,
     content: Element<'a, Message, Renderer>,
     on_scroll: Option<Box<dyn Fn(Viewport) -> Message + 'a>>,
+    on_animate_finished: Option<Message>,
     style: <Renderer::Theme as StyleSheet>::Style,
+    scroll_to_top: bool,
 }
 
 impl<'a, Message, Renderer> Scrollable<'a, Message, Renderer>
@@ -49,8 +54,22 @@ where
             direction: Direction::default(),
             content: content.into(),
             on_scroll: None,
+            on_animate_finished: None,
             style: Default::default(),
+            scroll_to_top: false,
         }
+    }
+
+    /// Message to send when a `scroll_to_top` finishes.
+    pub fn on_animate_finished(mut self, msg: Message) -> Self {
+        self.on_animate_finished = Some(msg);
+        self
+    }
+
+    /// Scrolls the scrollable to the top.
+    pub fn scroll_to_top(mut self, v: bool) -> Self {
+        self.scroll_to_top = v;
+        self
     }
 
     /// Sets the [`Id`] of the [`Scrollable`].
@@ -203,6 +222,7 @@ impl<'a, Message, Renderer> Widget<Message, Renderer>
 where
     Renderer: crate::core::Renderer,
     Renderer::Theme: StyleSheet,
+    Message: Clone,
 {
     fn tag(&self) -> tree::Tag {
         tree::Tag::of::<State>()
@@ -305,6 +325,8 @@ where
             shell,
             self.direction,
             &self.on_scroll,
+            self.on_animate_finished.as_ref(),
+            self.scroll_to_top,
             |event, layout, cursor, clipboard, shell, viewport| {
                 self.content.as_widget_mut().on_event(
                     &mut tree.children[0],
@@ -410,6 +432,7 @@ where
     Message: 'a,
     Renderer: 'a + crate::core::Renderer,
     Renderer::Theme: StyleSheet,
+    Message: Clone,
 {
     fn from(
         text_input: Scrollable<'a, Message, Renderer>,
@@ -492,7 +515,7 @@ pub fn layout<Renderer>(
 
 /// Processes an [`Event`] and updates the [`State`] of a [`Scrollable`]
 /// accordingly.
-pub fn update<Message>(
+pub fn update<Message: Clone>(
     state: &mut State,
     event: Event,
     layout: Layout<'_>,
@@ -501,6 +524,8 @@ pub fn update<Message>(
     shell: &mut Shell<'_, Message>,
     direction: Direction,
     on_scroll: &Option<Box<dyn Fn(Viewport) -> Message + '_>>,
+    on_animate_finished: Option<&Message>,
+    scroll_to_top: bool,
     update_content: impl FnOnce(
         Event,
         Layout<'_>,
@@ -515,6 +540,41 @@ pub fn update<Message>(
 
     let content = layout.children().next().unwrap();
     let content_bounds = content.bounds();
+
+    if scroll_to_top {
+        let (last_render, keyframes) = state.animate.get_or_insert_with(|| {
+            let offs = match state.offset_y {
+                Offset::Absolute(v) => v,
+                Offset::Relative(_) => panic!(),
+            };
+            let keyframes = keyframes![(offs, 0.0, EaseOutQuint), (0.0, 0.5)];
+            (Instant::now(), keyframes)
+        });
+
+        if let Event::Window(_, window::Event::RedrawRequested(_)) = event {
+            let _ = keyframes.advance_by(last_render.elapsed().as_secs_f64());
+            state.offset_y = Offset::Absolute(keyframes.now());
+            *last_render = Instant::now();
+            let finished = keyframes.finished();
+
+            notify_on_scroll(state, on_scroll, bounds, content_bounds, shell);
+
+            if finished {
+                if let Some(msg) = on_animate_finished {
+                    shell.publish(msg.clone());
+                }
+            } else {
+                shell.request_redraw(RedrawRequest::NextFrame);
+            }
+
+            return event::Status::Captured;
+        } else {
+            // ignore any other events while we're animating
+            return event::Status::Ignored;
+        }
+    } else {
+        state.animate = None;
+    }
 
     let scrollbars = Scrollbars::new(state, direction, bounds, content_bounds);
 
@@ -1034,7 +1094,8 @@ fn notify_on_scroll<Message>(
 }
 
 /// The local state of a [`Scrollable`].
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone)]
+#[allow(missing_debug_implementations)]
 pub struct State {
     scroll_area_touched_at: Option<Point>,
     offset_y: Offset,
@@ -1043,6 +1104,7 @@ pub struct State {
     x_scroller_grabbed_at: Option<f32>,
     keyboard_modifiers: keyboard::Modifiers,
     last_notified: Option<Viewport>,
+    animate: Option<(Instant, AnimationSequence<f32>)>,
 }
 
 impl Default for State {
@@ -1055,6 +1117,7 @@ impl Default for State {
             x_scroller_grabbed_at: None,
             keyboard_modifiers: keyboard::Modifiers::default(),
             last_notified: None,
+            animate: None,
         }
     }
 }

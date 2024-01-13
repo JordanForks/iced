@@ -3,10 +3,10 @@
 use std::time::{Duration, Instant};
 
 use crate::core::{
-    Clipboard, Element, Layout, Length, Rectangle, Shell, Size, Widget,
     event, layout, mouse, overlay, renderer, touch,
     widget::{tree, Operation, Tree},
-    window::RedrawRequest, Event,
+    window::RedrawRequest,
+    Clipboard, Element, Event, Layout, Length, Rectangle, Shell, Size, Widget,
 };
 
 /// Emit messages on mouse events.
